@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>时光胶囊</title>
-<link rel="icon" href="favicon.ico">
 <style>
 :root{
   --bg: light-dark(#fff3d6,#201b28); --panel: light-dark(#fffaf0,#30283a);
@@ -46,6 +45,16 @@ label{display:block;font-weight:bold;margin:14px 0 6px}
 .actions{display:flex;justify-content:space-between;gap:10px;margin-top:16px;flex-wrap:wrap}
 .actions .danger{background:#ff9a9a}.actions .save{background:var(--mint)}
 .stamp{font-size:12px;color:var(--muted);text-align:right;margin-top:8px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.palette{display:flex;gap:8px;flex-wrap:wrap}
+.swatch{width:34px;height:34px;padding:0;border-width:3px;box-shadow:3px 3px 0 var(--shadow)}
+.swatch.active{outline:3px solid var(--blue);outline-offset:2px}
+.locked{filter:saturate(.75)}
+.lock-note{font-size:11px;color:var(--muted);margin-top:7px}
+.tabs{max-width:1080px;margin:0 auto 16px;display:flex;gap:8px;flex-wrap:wrap}
+.tab.active{background:var(--mint)}
+.opening{animation:pop .55s steps(5,end)}
+@keyframes pop{0%{transform:scale(1)}45%{transform:scale(1.13) rotate(-3deg)}75%{transform:scale(.96) rotate(2deg)}100%{transform:scale(1)}}
 @media(max-width:520px){#app{padding:16px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.capsule-card{padding:10px}.editor{padding:15px}}
 </style>
 </head>
@@ -56,6 +65,7 @@ label{display:block;font-weight:bold;margin:14px 0 6px}
   <button id="newBtn">＋ 新建胶囊</button>
 </header>
 <div class="toolbar"><input class="search" id="search" placeholder="⌕ 搜索标题或信件内容…"></div>
+<div class="tabs"><button class="tab active" data-box="past">过去的我</button><button class="tab" data-box="future">未来的我</button><button class="tab" data-box="all">全部胶囊</button></div>
 <main class="grid" id="grid"></main>
 </div>
 
@@ -64,6 +74,11 @@ label{display:block;font-weight:bold;margin:14px 0 6px}
     <h2>▣ 我的时光胶囊</h2>
     <label>胶囊标题</label><input id="title" maxlength="60" placeholder="例如：写给十八岁的我">
     <label>这封信写于</label><input id="letterDate" type="date">
+    <div class="row">
+      <div><label>放进档案柜</label><select id="box" class="search"><option value="past">过去的我</option><option value="future">未来的我</option></select></div>
+      <div><label>封存至</label><input id="unlockDate" type="date"></div>
+    </div>
+    <label>胶囊颜色</label><div class="palette" id="palette"><button class="swatch" data-color="#f4a6a6" style="background:#f4a6a6"></button><button class="swatch" data-color="#ffd36e" style="background:#ffd36e"></button><button class="swatch" data-color="#93d8bc" style="background:#93d8bc"></button><button class="swatch" data-color="#91c9df" style="background:#91c9df"></button><button class="swatch" data-color="#c7a6e8" style="background:#c7a6e8"></button></div>
     <label>信件内容</label><textarea id="content" placeholder="亲爱的过去的我……"></textarea>
     <div class="stamp" id="stamp"></div>
     <div class="actions">
@@ -75,26 +90,32 @@ label{display:block;font-weight:bold;margin:14px 0 6px}
 
 <script>
 const KEY="pixel-time-capsules-v1";
-let data=JSON.parse(localStorage.getItem(KEY)||"[]"), editing=null;
+let data=JSON.parse(localStorage.getItem(KEY)||"[]"), editing=null, currentBox="past", chosenColor="#f4a6a6";
 const $=id=>document.getElementById(id);
 function esc(s){return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function persist(){localStorage.setItem(KEY,JSON.stringify(data))}
 function render(){
  const q=$("search").value.trim().toLowerCase();
- const items=data.filter(x=>(x.title+" "+x.content).toLowerCase().includes(q));
+ const items=data.filter(x=>(currentBox==="all"||(x.box||"past")===currentBox)&&(x.title+" "+x.content).toLowerCase().includes(q));
  $("grid").innerHTML=items.length?items.map(x=>`
- <article class="capsule-card" data-id="${x.id}">
-  <div class="capsule pixel"><div class="cap-top"><i class="spark"></i></div><div class="band"></div><div class="cap-bottom"></div></div>
+ <article class="capsule-card ${isLocked(x)?"locked":""}" data-id="${x.id}">
+  <div class="capsule pixel"><div class="cap-top" style="background:${x.color||"#f4a6a6"}"><i class="spark"></i></div><div class="band"></div><div class="cap-bottom" style="background:${x.color||"#93d8bc"}"></div></div>
   <div class="card-title">${esc(x.title||"未命名胶囊")}</div>
   <div class="card-date">✎ ${esc(x.letterDate||"没有写日期")}</div>
+  ${isLocked(x)?`<div class="lock-note">🔒 封存至 ${esc(x.unlockDate)}</div>`:`<div class="lock-note">✦ 可以打开</div>`}
  </article>`).join(""):`<div class="empty">☆ 这里还空空的。<br><br>把第一封旧信放进来吧。</div>`;
- document.querySelectorAll(".capsule-card").forEach(el=>el.onclick=()=>openEditor(el.dataset.id));
+ document.querySelectorAll(".capsule-card").forEach(el=>el.onclick=()=>{const x=data.find(v=>v.id===el.dataset.id);if(isLocked(x)){alert(`这枚胶囊还在时间里睡觉。\n要到 ${x.unlockDate} 才能打开。`);return}el.classList.add("opening");setTimeout(()=>openEditor(el.dataset.id),420)});
 }
+function isLocked(x){return !!(x?.unlockDate&&new Date(x.unlockDate+"T23:59:59")>new Date())}
+function setColor(c){chosenColor=c;document.querySelectorAll(".swatch").forEach(b=>b.classList.toggle("active",b.dataset.color===c))}
 function openEditor(id=null){
  editing=id;
  const x=data.find(v=>v.id===id);
  $("title").value=x?.title||"";
  $("letterDate").value=x?.letterDate||new Date().toISOString().slice(0,10);
+ $("box").value=x?.box||(currentBox==="future"?"future":"past");
+ $("unlockDate").value=x?.unlockDate||"";
+ setColor(x?.color||"#f4a6a6");
  $("content").value=x?.content||"";
  $("stamp").textContent=x?`最后保存：${new Date(x.updated).toLocaleString()}`:"新胶囊 · 等待封存";
  $("deleteBtn").style.visibility=x?"visible":"hidden";
@@ -102,10 +123,12 @@ function openEditor(id=null){
 }
 function close(){ $("modal").classList.remove("open") }
 $("newBtn").onclick=()=>openEditor();
+document.querySelectorAll(".swatch").forEach(b=>b.onclick=()=>setColor(b.dataset.color));
+document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{currentBox=b.dataset.box;document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t===b));render()});
 $("cancelBtn").onclick=close;
 $("modal").onclick=e=>{if(e.target===$("modal"))close()};
 $("saveBtn").onclick=()=>{
- const now=Date.now(), item={id:editing||String(now),title:$("title").value.trim()||"未命名胶囊",letterDate:$("letterDate").value,content:$("content").value,updated:now};
+ const now=Date.now(), item={id:editing||String(now),title:$("title").value.trim()||"未命名胶囊",letterDate:$("letterDate").value,box:$("box").value,unlockDate:$("unlockDate").value,color:chosenColor,content:$("content").value,updated:now};
  if(editing){data=data.map(x=>x.id===editing?item:x)}else data.unshift(item);
  persist();close();render();
 };

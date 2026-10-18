@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>时光胶囊</title>
+<link rel="icon" href="favicon.ico">
+<style>
+:root{
+  --bg: light-dark(#fff3d6,#201b28); --panel: light-dark(#fffaf0,#30283a);
+  --ink: light-dark(#493c4b,#fff3e7); --muted: light-dark(#8b7281,#cbb9c6);
+  --pink:#f4a6a6; --yellow:#ffd36e; --mint:#93d8bc; --blue:#91c9df;
+  --line:light-dark(#604c58,#e8d5df); --shadow:light-dark(#c89c85,#120e16);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Courier New","Microsoft YaHei",monospace;color:var(--ink)}
+#app{min-height:100vh;background-color:var(--bg);padding:24px}
+.pixel{image-rendering:pixelated}
+header{max-width:1080px;margin:auto auto 22px;display:flex;gap:16px;align-items:center;justify-content:space-between}
+.brand h1{margin:0;font-size:clamp(24px,4vw,42px);text-shadow:3px 3px 0 var(--yellow)}
+.brand p{margin:8px 0 0;color:var(--muted);font-size:13px}
+button,input,textarea{font:inherit}
+button{cursor:pointer;border:3px solid var(--line);background:var(--yellow);color:#493c4b;padding:10px 14px;box-shadow:4px 4px 0 var(--shadow);font-weight:bold}
+button:active{transform:translate(3px,3px);box-shadow:1px 1px 0 var(--shadow)}
+.toolbar{max-width:1080px;margin:0 auto 20px;display:flex;gap:10px;flex-wrap:wrap}
+.search{flex:1;min-width:210px;border:3px solid var(--line);background:var(--panel);color:var(--ink);padding:10px}
+.grid{max-width:1080px;margin:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:20px}
+.capsule-card{border:3px solid var(--line);background:var(--panel);padding:15px;box-shadow:6px 6px 0 var(--shadow);cursor:pointer;transition:.12s}
+.capsule-card:hover{transform:translate(-2px,-2px);box-shadow:8px 8px 0 var(--shadow)}
+.capsule{width:80px;height:124px;margin:4px auto 15px;position:relative}
+.cap-top,.cap-bottom{position:absolute;left:12px;width:56px;height:58px;border:4px solid var(--line)}
+.cap-top{top:4px;background:var(--pink);border-radius:30px 30px 7px 7px}
+.cap-bottom{bottom:4px;background:var(--mint);border-radius:7px 7px 30px 30px}
+.band{position:absolute;z-index:2;left:8px;top:53px;width:64px;height:18px;background:var(--yellow);border:4px solid var(--line)}
+.spark{position:absolute;width:8px;height:8px;background:white;top:20px;left:27px;box-shadow:8px 0 white,0 8px white}
+.card-title{font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-date{font-size:11px;color:var(--muted);margin-top:7px}
+.empty{grid-column:1/-1;text-align:center;padding:70px 20px;color:var(--muted)}
+.modal{position:fixed;inset:0;background:#0008;display:none;align-items:center;justify-content:center;padding:18px}
+.modal.open{display:flex}
+.editor{width:min(720px,100%);max-height:90vh;overflow:auto;background:var(--panel);border:4px solid var(--line);box-shadow:9px 9px 0 #0006;padding:22px}
+.editor h2{margin-top:0}
+label{display:block;font-weight:bold;margin:14px 0 6px}
+.editor input,.editor textarea{width:100%;border:3px solid var(--line);background:var(--bg);color:var(--ink);padding:10px}
+.editor textarea{min-height:280px;resize:vertical;line-height:1.7}
+.actions{display:flex;justify-content:space-between;gap:10px;margin-top:16px;flex-wrap:wrap}
+.actions .danger{background:#ff9a9a}.actions .save{background:var(--mint)}
+.stamp{font-size:12px;color:var(--muted);text-align:right;margin-top:8px}
+@media(max-width:520px){#app{padding:16px}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.capsule-card{padding:10px}.editor{padding:15px}}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="brand"><h1>✦ TIME CAPSULE ✦</h1><p>把旧日的信，装进不会过期的小胶囊。</p></div>
+  <button id="newBtn">＋ 新建胶囊</button>
+</header>
+<div class="toolbar"><input class="search" id="search" placeholder="⌕ 搜索标题或信件内容…"></div>
+<main class="grid" id="grid"></main>
+</div>
+
+<div class="modal" id="modal">
+  <section class="editor">
+    <h2>▣ 我的时光胶囊</h2>
+    <label>胶囊标题</label><input id="title" maxlength="60" placeholder="例如：写给十八岁的我">
+    <label>这封信写于</label><input id="letterDate" type="date">
+    <label>信件内容</label><textarea id="content" placeholder="亲爱的过去的我……"></textarea>
+    <div class="stamp" id="stamp"></div>
+    <div class="actions">
+      <button class="danger" id="deleteBtn">删除</button>
+      <div><button id="cancelBtn">关上胶囊</button> <button class="save" id="saveBtn">保存胶囊</button></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const KEY="pixel-time-capsules-v1";
+let data=JSON.parse(localStorage.getItem(KEY)||"[]"), editing=null;
+const $=id=>document.getElementById(id);
+function esc(s){return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
+function persist(){localStorage.setItem(KEY,JSON.stringify(data))}
+function render(){
+ const q=$("search").value.trim().toLowerCase();
+ const items=data.filter(x=>(x.title+" "+x.content).toLowerCase().includes(q));
+ $("grid").innerHTML=items.length?items.map(x=>`
+ <article class="capsule-card" data-id="${x.id}">
+  <div class="capsule pixel"><div class="cap-top"><i class="spark"></i></div><div class="band"></div><div class="cap-bottom"></div></div>
+  <div class="card-title">${esc(x.title||"未命名胶囊")}</div>
+  <div class="card-date">✎ ${esc(x.letterDate||"没有写日期")}</div>
+ </article>`).join(""):`<div class="empty">☆ 这里还空空的。<br><br>把第一封旧信放进来吧。</div>`;
+ document.querySelectorAll(".capsule-card").forEach(el=>el.onclick=()=>openEditor(el.dataset.id));
+}
+function openEditor(id=null){
+ editing=id;
+ const x=data.find(v=>v.id===id);
+ $("title").value=x?.title||"";
+ $("letterDate").value=x?.letterDate||new Date().toISOString().slice(0,10);
+ $("content").value=x?.content||"";
+ $("stamp").textContent=x?`最后保存：${new Date(x.updated).toLocaleString()}`:"新胶囊 · 等待封存";
+ $("deleteBtn").style.visibility=x?"visible":"hidden";
+ $("modal").classList.add("open"); $("title").focus();
+}
+function close(){ $("modal").classList.remove("open") }
+$("newBtn").onclick=()=>openEditor();
+$("cancelBtn").onclick=close;
+$("modal").onclick=e=>{if(e.target===$("modal"))close()};
+$("saveBtn").onclick=()=>{
+ const now=Date.now(), item={id:editing||String(now),title:$("title").value.trim()||"未命名胶囊",letterDate:$("letterDate").value,content:$("content").value,updated:now};
+ if(editing){data=data.map(x=>x.id===editing?item:x)}else data.unshift(item);
+ persist();close();render();
+};
+$("deleteBtn").onclick=()=>{if(editing&&confirm("真的要把这个胶囊丢掉吗？")){data=data.filter(x=>x.id!==editing);persist();close();render()}};
+$("search").oninput=render;
+document.addEventListener("keydown",e=>{if(e.key==="Escape")close();if((e.ctrlKey||e.metaKey)&&e.key==="s"&&$("modal").classList.contains("open")){e.preventDefault();$("saveBtn").click()}});
+render();
+</script>
+</body>
+</html>
